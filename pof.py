@@ -114,15 +114,15 @@ def get_compass(sense, readings=1):
 
     return direction
 
-def get_orientation(sense, readings=1):
+def get_altitude(sense, readings=1):
     i = 1
     while i <= readings:
-        orientation = sense.get_orientation()["pitch"]
+        pitch = sense.get_orientation()["pitch"]
         i += 1
 
-    return orientation
+    return pitch
 
-def compass_arrow(current_azimuth, target_azimuth=0, tolerance=5):
+def azimuth_arrow(current_azimuth, target_azimuth=0, tolerance=5):
     deviance = (target_azimuth - current_azimuth)
 
     if abs(deviance) <= tolerance :
@@ -132,16 +132,14 @@ def compass_arrow(current_azimuth, target_azimuth=0, tolerance=5):
     else:
         return SH_ARROWS["right"]
 
-def ascension_arrow(current_orientation, target_orientation=0, tolerance=5):
-    deviance = (target_orientation - current_orientation)
-    print "Target: %d\tCurrent: %d\tDeviance: %d" % (target_orientation,
-                                                     current_orientation,
+def altitude_arrow(current_altitude, target_altitude=0, tolerance=5):
+    deviance = (target_altitude - current_altitude)
+    print "Target: %d\tCurrent: %d\tDeviance: %d" % (target_altitude,
+                                                     current_altitude,
                                                      deviance)
 
     if abs(deviance) <= tolerance:
         return SH_ARROWS["hold"]
-    elif target_orientation > current_orientation:
-        return SH_ARROWS["down"]
     else:
         return SH_ARROWS["center"] # also an UP arrow
 
@@ -162,7 +160,7 @@ def find_azimuth(sense, target_azimuth=0, tolerance=5, min_successes=10):
         # it fits better with our math.
         current_azimuth = get_compass(sense, readings=10) % 360
 
-        sense.set_pixels(compass_arrow(current_azimuth, target_azimuth=target_azimuth, tolerance=tolerance))
+        sense.set_pixels(azimuth_arrow(current_azimuth, target_azimuth=target_azimuth, tolerance=tolerance))
 
         if abs(target_azimuth - current_azimuth) <= tolerance:
             target_readings += 1
@@ -173,7 +171,7 @@ def find_azimuth(sense, target_azimuth=0, tolerance=5, min_successes=10):
             print current_azimuth
         i += 1
 
-def find_orientation(sense, target_orientation=0, tolerance=5, min_successes=10):
+def find_altitude(sense, target_altitude=0, tolerance=5, min_successes=10):
     # Turn on the accelerometer
     sense.set_imu_config(compass_enabled=False,
                          gyro_enabled=True,
@@ -182,17 +180,17 @@ def find_orientation(sense, target_orientation=0, tolerance=5, min_successes=10)
     i = 0
     target_readings = 0
     while target_readings < min_successes:
-        current_orientation = get_orientation(sense, readings=10)
+        current_altitude = get_altitude(sense, readings=10)
 
-        sense.set_pixels(ascension_arrow(current_orientation, target_orientation=target_orientation, tolerance=tolerance))
+        sense.set_pixels(altitude_arrow(current_altitude, target_altitude=target_altitude, tolerance=tolerance))
 
-        if abs(target_orientation - current_orientation) <= tolerance:
+        if abs(target_altitude - current_altitude) <= tolerance:
             target_readings += 1
         else:
             target_readings = 0
 
         if (i % 1) == 0:
-            print current_orientation
+            print current_altitude
         i += 1
 
 
@@ -209,15 +207,15 @@ sense.low_light = True
 try:
     while True:
         sense.show_message("Azimuth", text_colour=SH_COLORS["red"])
-        find_azimuth(sense, target_azimuth=113, tolerance=5, min_successes=20)
+        find_azimuth(sense, target_azimuth=113, tolerance=5, min_successes=10)
         show_image(sense, image=SH_CHECKMARK)
 
         sense.show_message("Altitude", text_colour=SH_COLORS["red"])
-        find_orientation(sense, target_orientation=33, tolerance=5, min_successes=20)
+        find_altitude(sense, target_altitude=33, tolerance=5, min_successes=10)
         show_image(sense, image=SH_CHECKMARK)
 
         # If we got here, we're ON TARGET!
-        show_image(sense, image=SH_ONTARGET, flash=20, clear=True)
+        show_image(sense, image=SH_ONTARGET, flash=20, pause=3, clear=True)
 
         # By this point, we've found the object and the display is off.
         # If we click the joystick button, though, wake up and start over
