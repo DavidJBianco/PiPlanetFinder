@@ -3,6 +3,59 @@
 from sense_hat import SenseHat
 import time
 
+SH_COLORS = {
+                "red": (255, 0, 0),
+                "orange": (255, 127, 0),
+                "yellow": (255, 255, 0),
+                "green": (0, 255, 0),
+                "blue": (0, 0, 255),
+                "indigo": (75, 0, 130),
+                "violet": (159, 0, 255),
+                "white": (255, 255, 255),
+                "black": (0, 0, 0)
+        }
+
+W = SH_COLORS["white"]
+B = SH_COLORS["black"]
+G = SH_COLORS["green"]
+
+SH_ARROWS = {
+        "left": [B, B, B, B, B, B, B, B,
+                 B, B, W, B, B, B, B, B,
+                 B, W, B, B, B, B, B, B,
+                 W, W, W, W, W, W, W, W,
+                 B, W, B, B, B, B, B, B,
+                 B, B, W, B, B, B, B, B,
+                 B, B, B, B, B, B, B, B,
+                 B, B, B, B, B, B, B, B],
+        "right": [B, B, B, B, B, B, B, B,
+                  B, B, B, B, B, W, B, B,
+                  B, B, B, B, B, B, W, B,
+                  W, W, W, W, W, W, W, W,
+                  B, B, B, B, B, B, W, B,
+                  B, B, B, B, B, W, B, B,
+                  B, B, B, B, B, B, B, B,
+                  B, B, B, B, B, B, B, B],
+        "center": [B, B, B, W, W, B, B, B,
+                   B, B, W, W, W, W, B, B,
+                   B, W, B, W, W, B, W, B,
+                   B, B, B, W, W, B, B, B,
+                   B, B, B, W, W, B, B, B,
+                   B, B, B, W, W, B, B, B,
+                   B, B, B, W, W, B, B, B,
+                   B, B, B, W, W, B, B, B]
+    }
+
+SH_CHECKMARK = [
+        B, B, B, B, B, B, B, B,
+        B, B, B, B, B, B, B, B,
+        B, B, B, B, B, B, B, G,
+        B, B, B, B, B, B, G, B,
+        B, B, B, B, B, G, B, B,
+        G, B, B, B, G, B, B, B,
+        B, G, B, G, B, B, B, B,
+        B, B, G, B, B, B, B, B,    
+    ]
 
 def show_image(sense, image, flash=False, frames=5, speed=0.1, clear=False):
     sense.set_pixels(image)
@@ -52,12 +105,12 @@ def compass_arrow(current_bearing, target_bearing=0, tolerance=5):
         print "RIGHT"
         return SH_ARROWS["right"]
 
-def find_bearing(target_bearing=0):
+def find_bearing(target_bearing=0, tolerance=5, min_successes=10):
     # Treat target_bearing of 360 as though it were 0 (which it is)
     target_bearing = target_bearing % 360
     i = 0
-    
-    while True:
+    target_readings = 0
+    while target_readings < min_successes:
         # For some reason, the compass likes to send both 0 and 360.
         # Even though they are the same, mathematically they are different.
         # So we basically don't allow 360, and make it always a 0 because
@@ -65,56 +118,27 @@ def find_bearing(target_bearing=0):
         current_bearing = get_compass(sense, readings=10) % 360
 
         sense.set_pixels(compass_arrow(current_bearing, target_bearing=target_bearing, tolerance=5))
+
+        if abs(target_bearing - current_bearing) <= tolerance:
+            target_readings += 1
+        else:
+            target_readings = 0
         
         if (i % 1) == 0:
             print current_bearing
         i += 1
-    
+
+def show_check(sense, bitmap=None, pause=3):
+    if bitmap:
+        sense.set_pixels(bitmap)
+    else:
+        sense.set_pixels(SH_CHECKMARK)
+    time.sleep(pause)
+    sense.clear()
     
 sense = SenseHat()
 
 
-SH_COLORS = {
-                "red": (255, 0, 0),
-                "orange": (255, 127, 0),
-                "yellow": (255, 255, 0),
-                "green": (0, 255, 0),
-                "blue": (0, 0, 255),
-                "indigo": (75, 0, 130),
-                "violet": (159, 0, 255),
-                "white": (255, 255, 255),
-                "black": (0, 0, 0)
-        }
-
-W = SH_COLORS["white"]
-B = SH_COLORS["black"]
-
-SH_ARROWS = {
-        "left": [B, B, B, B, B, B, B, B,
-                 B, B, W, B, B, B, B, B,
-                 B, W, B, B, B, B, B, B,
-                 W, W, W, W, W, W, W, W,
-                 B, W, B, B, B, B, B, B,
-                 B, B, W, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B],
-        "right": [B, B, B, B, B, B, B, B,
-                  B, B, B, B, B, W, B, B,
-                  B, B, B, B, B, B, W, B,
-                  W, W, W, W, W, W, W, W,
-                  B, B, B, B, B, B, W, B,
-                  B, B, B, B, B, W, B, B,
-                  B, B, B, B, B, B, B, B,
-                  B, B, B, B, B, B, B, B],
-        "center": [B, B, B, W, W, B, B, B,
-                   B, B, W, W, W, W, B, B,
-                   B, W, B, W, W, B, W, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B]
-    }
 
 
 sense.clear()
@@ -122,7 +146,9 @@ sense.set_rotation(90)
 sense.low_light = True
 
 try:
-    find_bearing(360)
+    sense.show_message("Bearing", text_colour=SH_COLORS["red"])
+    find_bearing(target_bearing=0, tolerance=5, min_successes=20)
+    show_check(sense)
 except (KeyboardInterrupt, Exception) as e:
     sense.clear()
     print e
