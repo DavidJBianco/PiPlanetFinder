@@ -1,7 +1,11 @@
 #!/usr/bin/env python
 
+import traceback
 from sense_hat import SenseHat
 import time
+import sys
+import gps
+import ephem
 
 SH_COLORS = {
                 "red": (255, 0, 0),
@@ -85,6 +89,40 @@ SH_CHECKMARK = [
         B, B, G, B, B, B, B, B,    
     ]
 
+def format_date(d):
+    '''
+    Convert a timestamp string provided by the GPS into a format that the
+    ephem module can understand.  The return result is also a string, just
+    in a different format.
+    '''
+    return time.strftime("%Y/%m/%d %H:%M:%S", time.strptime(d, "%Y-%m-%dT%H:%M:%S.%fZ"))
+
+def get_gps_info():
+    # Turn on the GPS
+    session = gps.gps(mode=gps.WATCH_ENABLE)
+
+    # Loop until we get a mode 3 message (3D lock acquired)
+    gps_fix = False
+    while not gps_fix:
+        report = session.next()
+        # GPS has many message types, but TPV is the only one we care about.
+        # Skip all the others.
+        if report["class"] == "TPV":
+            if report["mode"] == 3:
+                # We got a 3D GPS fix
+                gps_fix = True
+                latitude = report["lat"]
+                longitude = report["lon"]
+                utc_time = report["time"]
+
+        # Sleep a bit, just to avoid going into a tight loop
+        time.sleep(0.1)
+
+    # Turn off GPS to conserve battery
+    session = gps.gps(mode=gps.WATCH_DISABLE)
+    
+    return (latitude, longitude, utc_time)
+
 def show_image(sense, image, flash=False, frames=5, speed=0.1,
                pause=3, clear=False):
     sense.set_pixels(image)
@@ -134,9 +172,6 @@ def azimuth_arrow(current_azimuth, target_azimuth=0, tolerance=5):
 
 def altitude_arrow(current_altitude, target_altitude=0, tolerance=5):
     deviance = (target_altitude - current_altitude)
-    print "Target: %d\tCurrent: %d\tDeviance: %d" % (target_altitude,
-                                                     current_altitude,
-                                                     deviance)
 
     if abs(deviance) <= tolerance:
         return SH_ARROWS["hold"]
@@ -151,7 +186,7 @@ def find_azimuth(sense, target_azimuth=0, tolerance=5, min_successes=10):
     
     # Treat target_azimuth of 360 as though it were 0 (which it is)
     target_azimuth = target_azimuth % 360
-    i = 0
+
     target_readings = 0
     while target_readings < min_successes:
         # For some reason, the compass likes to send both 0 and 360.
@@ -167,9 +202,6 @@ def find_azimuth(sense, target_azimuth=0, tolerance=5, min_successes=10):
         else:
             target_readings = 0
         
-        if (i % 1) == 0:
-            print current_azimuth
-        i += 1
 
 def find_altitude(sense, target_altitude=0, tolerance=5, min_successes=10):
     # Turn on the accelerometer
@@ -177,7 +209,6 @@ def find_altitude(sense, target_altitude=0, tolerance=5, min_successes=10):
                          gyro_enabled=True,
                          accel_enabled=True)
 
-    i = 0
     target_readings = 0
     while target_readings < min_successes:
         current_altitude = get_altitude(sense, readings=10)
@@ -188,10 +219,6 @@ def find_altitude(sense, target_altitude=0, tolerance=5, min_successes=10):
             target_readings += 1
         else:
             target_readings = 0
-
-        if (i % 1) == 0:
-            print current_altitude
-        i += 1
 
 
 ##### MAIN #####
@@ -206,12 +233,42 @@ sense.low_light = True
 
 try:
     while True:
-        sense.show_message("Azimuth", text_colour=SH_COLORS["red"])
-        find_azimuth(sense, target_azimuth=113, tolerance=5, min_successes=10)
+        # For accurate ephemera, we need to get our current latitude, longitude,
+        # altitude and time from the GPS
+        sense.show_message("GPS", text_colour=R)
+
+        (latitude, longitude, utc_time) = get_gps_info()
+        print "Lat/Lon: %s, %s" % (latitude, longitude)
+        print "Time: %s" % utc_time
+
+        show_image(sense, image=SH_CHECKMARK, clear=True)
+
+        # Determine the celestial coordinates of our test object, the Sun
+
+        obj = ephem.Sun()
+        observer = ephem.Observer()
+        observer.lon = longitude
+        observer.lat = latitude
+        observer.date = format_date(utc_time)
+
+        obj.compute(observer)
+
+        # Ephem returns the azimuth and altitude as colon-separated strings
+        # (e.g. "70:01:03.5" for "70 degrees and change).  We only need the first
+        # value, since our pointing device's accuracy is kinda rough anyway.
+        # So split those off and convert them to integers
+        target_azimuth = int(str(obj.az).split(":")[0])
+        target_altitude = int(str(obj.alt).split(":")[0])
+
+        print "Target Azimuth: %s" % target_azimuth
+        print "Target Altitude: %s" % target_altitude
+
+        sense.show_message("Azimuth: %d" % target_azimuth, text_colour=SH_COLORS["red"])
+        find_azimuth(sense, target_azimuth=target_azimuth, tolerance=5, min_successes=10)
         show_image(sense, image=SH_CHECKMARK)
 
-        sense.show_message("Altitude", text_colour=SH_COLORS["red"])
-        find_altitude(sense, target_altitude=33, tolerance=5, min_successes=10)
+        sense.show_message("Altitude: %d" % target_altitude, text_colour=SH_COLORS["red"])
+        find_altitude(sense, target_altitude=target_altitude, tolerance=5, min_successes=10)
         show_image(sense, image=SH_CHECKMARK)
 
         # If we got here, we're ON TARGET!
@@ -228,9 +285,16 @@ try:
             time.sleep(.5)
         
 except (KeyboardInterrupt, Exception) as e:
-    # On any kind of error, be sure to turn off the LEDs.
+    # On any kind of error, be sure to turn off the LEDs and the GPS.
     sense.clear()
-    print e
+    gps.gps(mode=gps.WATCH_DISABLE)
+
+    # Print a traceback so we can figure out what went wrong, unless it was
+    # keyboard interrupt (CTRL-C, presumably from the user)
+    if not type(e) == KeyboardInterrupt:
+        print traceback.format_exc()
+
+
     
 
     
