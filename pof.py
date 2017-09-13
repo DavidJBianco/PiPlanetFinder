@@ -105,10 +105,11 @@ def get_gps_info():
     gps_fix = False
     while not gps_fix:
         report = session.next()
+        print report
         # GPS has many message types, but TPV is the only one we care about.
         # Skip all the others.
         if report["class"] == "TPV":
-            if report["mode"] == 3:
+            if report["mode"] in [2,3]:
                 # We got a 3D GPS fix
                 gps_fix = True
                 latitude = report["lat"]
