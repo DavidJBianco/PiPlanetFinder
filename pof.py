@@ -6,88 +6,82 @@ import time
 import sys
 import gps
 import ephem
+import os
 
-SH_COLORS = {
-                "red": (255, 0, 0),
-                "orange": (255, 127, 0),
-                "yellow": (255, 255, 0),
-                "green": (0, 255, 0),
-                "blue": (0, 0, 255),
-                "indigo": (75, 0, 130),
-                "violet": (159, 0, 255),
-                "white": (255, 255, 255),
-                "black": (0, 0, 0)
-        }
+from util.colors import *
+from util.bitmaps import *
 
-W = SH_COLORS["white"]
-B = SH_COLORS["black"]
-G = SH_COLORS["green"]
-R = SH_COLORS["red"]
-
-SH_ARROWS = {
-        "left": [B, B, B, B, B, B, B, B,
-                 B, B, W, B, B, B, B, B,
-                 B, W, B, B, B, B, B, B,
-                 W, W, W, W, W, W, W, W,
-                 B, W, B, B, B, B, B, B,
-                 B, B, W, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B],
-        "right": [B, B, B, B, B, B, B, B,
-                  B, B, B, B, B, W, B, B,
-                  B, B, B, B, B, B, W, B,
-                  W, W, W, W, W, W, W, W,
-                  B, B, B, B, B, B, W, B,
-                  B, B, B, B, B, W, B, B,
-                  B, B, B, B, B, B, B, B,
-                  B, B, B, B, B, B, B, B],
-        "center": [B, B, B, W, W, B, B, B,
-                   B, B, W, W, W, W, B, B,
-                   B, W, B, W, W, B, W, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B,
-                   B, B, B, W, W, B, B, B],
-        "down": [B, B, B, W, W, B, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, W, B, W, W, B, W, B,
-                 B, B, W, W, W, W, B, B,
-                 B, B, B, W, W, B, B, B],
-        "hold": [B, B, B, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, B, W, B, B, W, B, B,
-                 B, B, W, B, B, W, B, B,
-                 B, B, B, W, W, B, B, B,
-                 B, B, B, B, B, B, B, B,
-                 B, B, B, B, B, B, B, B]
-    }
-
-SH_ONTARGET = [
-        R, B, B, B, B, B, B, R,
-        B, R, R, R, R, R, R, B,
-        B, R, R, B, B, R, R, B,
-        B, R, B, R, R, B, R, B,
-        B, R, B, R, R, B, R, B,
-        B, R, R, B, B, R, R, B,
-        B, R, R, R, R, R, R, B,
-        R, B, B, B, B, B, B, R,
+targets = [
+            ephem.Mercury(),
+            ephem.Venus(),
+            ephem.Mars(),
+            ephem.Jupiter(),
+            ephem.Saturn(),
+            ephem.Uranus(),
+            ephem.Neptune(),
+            ephem.Pluto(),
+            ephem.Sun(),
+            ephem.Moon()
     ]
 
-SH_CHECKMARK = [
-        B, B, B, B, B, B, B, B,
-        B, B, B, B, B, B, B, B,
-        B, B, B, B, B, B, B, G,
-        B, B, B, B, B, B, G, B,
-        B, B, B, B, B, G, B, B,
-        G, B, B, B, G, B, B, B,
-        B, G, B, G, B, B, B, B,
-        B, B, G, B, B, B, B, B,    
-    ]
+
+def wait_for_command(sense, min_gforce=3):
+    '''
+    Wait for one of two things to happen.  Either the joytstick button
+    was clicked (in which case return True), or the pi was shaken (not stirred).
+    If this is the case, then shut down the whole computer gracefully.
+
+    min_gforce controls how hard you have to shake the device in order to
+    trigger the shutdown.  The default is three, which is a pretty good
+    shake and unlikely to be triggered by random arm movements while
+    simply holding or carrying the device.
+    '''
+    got_command = False
+
+    # empty the event queue in case there are stray joystick pushes
+    # that would cause us to immediately proceed
+    sense.stick.get_events()
+    while not got_command:
+        evts = sense.stick.get_events()
+        for evt in evts:
+            if evt.direction == "middle":
+                got_command = True
+                return True
+
+        x, y, z = sense.get_accelerometer_raw().values()
+
+        x = abs(x)
+        y = abs(y)
+        z = abs(z)
+
+        if (x > min_gforce) or (y > min_gforce) or (z > min_gforce):
+            # We're all shook up!
+            sense.show_message("Shutdown", text_colour=R)
+            #os.system("/sbin/shutdown -h now")
+            sys.exit(0)
+            
+        time.sleep(.5)
+
+    return evt    
+
+
+def select_target(sense, targets):
+    i = 0
+    while True:
+        sense.show_message(targets[i].name, text_colour=R)
+        evt = None
+        while not evt:
+            evt = sense.stick.wait_for_event()
+            print evt
+            if evt.action == 'pressed':
+                if evt.direction == "middle":
+                    return targets[i]
+                elif evt.direction == "left":
+                    i = (i + 1) % len(targets)
+                elif evt.direction == "right":
+                    i = (i - 1) % len(targets)
+            else:
+                evt = None
 
 def format_date(d):
     '''
@@ -246,7 +240,10 @@ try:
 
         # Determine the celestial coordinates of our test object, the Sun
 
-        obj = ephem.Sun()
+        obj = select_target(sense, targets)
+        print "Target: %s" % obj.name
+        show_image(sense, image=SH_CHECKMARK, clear=True)
+       
         observer = ephem.Observer()
         observer.lon = longitude
         observer.lat = latitude
@@ -277,13 +274,8 @@ try:
 
         # By this point, we've found the object and the display is off.
         # If we click the joystick button, though, wake up and start over
-        # again.
-        button_pressed = False
-        while not button_pressed:
-            evt = sense.stick.wait_for_event()
-            if evt.direction == "middle":
-                button_pressed = True
-            time.sleep(.5)
+        # again.  Or maybe we want to shake the device and shutdown the system.
+        wait_for_command(sense)
         
 except (KeyboardInterrupt, Exception) as e:
     # On any kind of error, be sure to turn off the LEDs and the GPS.
